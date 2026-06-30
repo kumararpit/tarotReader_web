@@ -75,7 +75,7 @@ export const ServicesLight = () => {
     } else if (service.title.includes("Aura")) {
       imageSrc = process.env.PUBLIC_URL + '/assets/service-aura.png';
     } else {
-      imageSrc = process.env.PUBLIC_URL + '/assets/uploads/img4.png';
+      imageSrc = process.env.PUBLIC_URL + '/assets/livereading.jpeg';
     }
 
     return (
