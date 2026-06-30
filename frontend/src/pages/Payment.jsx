@@ -68,12 +68,12 @@ const Payment = () => {
 
         // Determine Service Key
         let serviceKey = '';
-        if (service?.title?.includes('TikTok')) {
+        if (service?.title?.includes('Predictions Only')) {
             serviceKey = 'tiktok-live';
         } else if (service?.title?.includes('Delivered')) {
             if (bookingData?.sessionType === '3_questions') serviceKey = 'delivered-3';
             if (bookingData?.sessionType === '5_questions') serviceKey = 'delivered-5';
-        } else if (service?.title?.includes('Live')) {
+        } else if (service?.title?.includes('1:1 Zoom')) {
             if (bookingData?.sessionType === '20_min') serviceKey = 'live-20';
             if (bookingData?.sessionType === '40_min') serviceKey = 'live-40';
         } else if (service?.title?.includes('Aura')) {
@@ -157,11 +157,11 @@ const Payment = () => {
 
             // Map service type for backend
             let serviceType = 'unknown';
-            if (service?.title?.includes('TikTok')) {
+            if (service?.title?.includes('Predictions Only')) {
                 serviceType = 'tiktok-live';
             } else if (service?.title?.includes('Delivered')) {
                 serviceType = `delivered-${bookingData.sessionType === '3_questions' ? 3 : 5}`;
-            } else if (service?.title?.includes('Live')) {
+            } else if (service?.title?.includes('1:1 Zoom')) {
                 serviceType = `live-${bookingData.sessionType === '20_min' ? 20 : 40}`;
             } else if (service?.title?.includes('Aura')) {
                 serviceType = 'aura';
@@ -198,8 +198,8 @@ const Payment = () => {
                 preferred_time: preferred_time,
                 alternative_time: null,
                 partner_info: bookingData.partnerName ? `${bookingData.partnerName} (${bookingData.partnerDob})` : null,
-                questions: bookingData.questions || (serviceType === 'tiktok-live' ? 'TikTok Live Session' : 'Aura Reading'),
-                situation_description: bookingData.situation || (serviceType === 'tiktok-live' ? 'TikTok Live Session' : 'Aura Reading'),
+                questions: bookingData.questions || (serviceType === 'tiktok-live' ? 'Predictions Only Session' : 'Aura Reading'),
+                situation_description: bookingData.situation || (serviceType === 'tiktok-live' ? 'Predictions Only Session' : 'Aura Reading'),
                 reading_focus: bookingData.readingFocus || null,
                 tiktok_username: bookingData.tiktokUsername || null,
                 payment_method: selectedPayment,
@@ -312,7 +312,7 @@ const Payment = () => {
 
                                     {bookingData?.tiktokUsername && (
                                         <div className="flex justify-between py-3 border-b border-primary/5">
-                                            <span className="text-muted-foreground">TikTok Username</span>
+                                            <span className="text-muted-foreground">TikTok / Zoom Username</span>
                                             <span className="font-medium text-primary">{bookingData.tiktokUsername}</span>
                                         </div>
                                     )}
@@ -363,7 +363,7 @@ const Payment = () => {
                                     </div>
 
                                     {/* Promo Input */}
-                                    {(!service?.title?.includes('TikTok')) && (
+                                    {(!service?.title?.includes('Predictions Only')) && (
                                         <div className="pt-4 border-t mt-4">
                                             <label className="text-xs font-medium text-primary mb-1 block">Have a Promo Code?</label>
                                             <div className="flex gap-2">

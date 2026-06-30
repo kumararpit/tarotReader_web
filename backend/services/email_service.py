@@ -95,9 +95,9 @@ def send_booking_confirmation_to_client(booking: dict, payment_info: dict = None
         elif raw_service == 'delivered-5':
             service_display = "Delivered Reading (5 Questions)"
         elif raw_service == 'live-20':
-            service_display = "Live Reading (20 Mins)"
+            service_display = "1:1 Zoom Reading (20 Mins)"
         elif raw_service == 'live-40':
-            service_display = "Live Reading (40 Mins)"
+            service_display = "1:1 Zoom Reading (40 Mins)"
         elif raw_service == 'aura':
             service_display = "Aura Scanning"
 
@@ -348,7 +348,7 @@ def send_reminder_email(booking: dict):
             'delivered-standard': 'Delivered Standard Reading',
             'delivered-emergency': 'Delivered Emergency Reading',
             'aura': 'Aura Reading',
-            'tiktok-live': 'TikTok Live Session',
+            'tiktok-live': 'Predictions Only Session',
         }
         service_name = service_map.get(service_type, service_type.replace('-', ' ').title())
 

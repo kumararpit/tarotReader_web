@@ -139,10 +139,12 @@ async def lifespan(app: FastAPI):
             logger.info("Seeding Service Prices...")
             for key, val in PRICING_MAP.items():
                 # Determine category
-                cat = "Live Readings"
+                cat = "1:1 Zoom Readings"
                 if "delivered" in key:
                     cat = "Email Readings"
                 elif "aura" in key:
+                    cat = "Other"
+                elif "tiktok" in key:
                     cat = "Other"
                 
                 await db.services.insert_one({
@@ -156,8 +158,23 @@ async def lifespan(app: FastAPI):
                 })
             logger.info("Service Prices seeded.")
             
+        # --- DB Migration: Update service display names & categories ---
+        name_migrations = {
+            'tiktok-live': {'name': 'Predictions Only Session', 'category': 'Other'},
+            'live-20':     {'name': '1:1 Zoom Reading \u2013 20 Minutes', 'category': '1:1 Zoom Readings'},
+            'live-40':     {'name': '1:1 Zoom Reading \u2013 40 Minutes', 'category': '1:1 Zoom Readings'},
+        }
+        for svc_key, updates in name_migrations.items():
+            await db.services.update_one(
+                {"key": svc_key},
+                {"$set": updates}
+            )
+        logger.info("DB migration: service display names and categories updated.")
+        # --- End Migration ---
+            
     except Exception as e:
         logger.error(f"Error creating index or seeding: {e}", exc_info=True)
+
 
     # Start cleanup task
     cleanup_task = asyncio.create_task(cleanup_stale_bookings())
@@ -387,7 +404,7 @@ class ServicePrice(BaseModel):
     name: str
     amount: float
     currency: str
-    category: str # 'Email Readings', 'Live Readings', 'Other'
+    category: str # 'Email Readings', '1:1 Zoom Readings', 'Other'
 
 class ServicePriceUpdate(BaseModel):
     amount: float
@@ -621,9 +638,9 @@ async def reset_password(data: ResetPasswordRequest, request: Request):
 PRICING_MAP = {
     'delivered-3': {'amount': 22.00, 'currency': 'EUR', 'name': '3 Questions'},
     'delivered-5': {'amount': 33.00, 'currency': 'EUR', 'name': '5 Questions'},
-    'live-20': {'amount': 66.00, 'currency': 'EUR', 'name': '20 Minutes'},
-    'live-40': {'amount': 129.00, 'currency': 'EUR', 'name': '40 Minutes'},
-    'tiktok-live': {'amount': 15.00, 'currency': 'EUR', 'name': 'TikTok Live'},
+    'live-20': {'amount': 66.00, 'currency': 'EUR', 'name': '1:1 Zoom Reading – 20 Minutes'},
+    'live-40': {'amount': 129.00, 'currency': 'EUR', 'name': '1:1 Zoom Reading – 40 Minutes'},
+    'tiktok-live': {'amount': 15.00, 'currency': 'EUR', 'name': 'Predictions Only Session'},
     'aura': {'amount': 15.00, 'currency': 'EUR', 'name': 'Aura Scanning'}
 }
 
@@ -1476,7 +1493,7 @@ async def create_booking(booking_data: BookingCreate, background_tasks: Backgrou
                         discount_total += discount
                         logger.info(f"Applied Global Campaign: {pct}% off. New amount: {final_amount}")
         else:
-            logger.info("TikTok Live service selected. Discounts are not applicable.")
+            logger.info("Predictions Only Session selected. Discounts are not applicable.")
 
         # Ensure non-negative
         if final_amount < 0: final_amount = 0.0
@@ -1719,7 +1736,7 @@ async def verify_payment(verification: PaymentVerification, background_tasks: Ba
         if not meeting_link and str(booking.get('service_type', '')).startswith('live-'):
             try:
                 raw_service = booking.get('service_type', '')
-                service_name = "Live Reading (20 Mins)" if '20' in raw_service else "Live Reading (40 Mins)"
+                service_name = "1:1 Zoom Reading (20 Mins)" if '20' in raw_service else "1:1 Zoom Reading (40 Mins)"
                 topic = f"{service_name} with {booking.get('full_name')}"
                 start_time_iso = f"{booking.get('preferred_date')}T{booking.get('preferred_time')}:00"
                 duration = 20 if '20' in raw_service else 40
@@ -2180,6 +2197,67 @@ async def api_generate_booking_pdf(booking_data: dict, background_tasks: Backgro
         }
     except Exception as e:
         logger.error(f"Manual PDF generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/generate-invoice-manual")
+async def api_generate_invoice_manual(invoice_data: dict):
+    """
+    Generate an invoice PDF manually with admin-provided data and stream it
+    directly as a downloadable PDF file response.
+    
+    Expected fields:
+      - full_name, email, phone, created_at
+      - booking_id, service_name, currency, amount
+      - payment_status, payment_method, transaction_id
+      - is_emergency (bool, optional)
+      - original_amount (optional, for display before emergency fee)
+      - tax_amount, tax_percentage, tax_name (optional)
+      - discount_amount, promo_code (optional)
+    """
+    try:
+        import uuid, tempfile
+        from fastapi.responses import FileResponse
+
+        booking_id = invoice_data.get('booking_id') or f"MANUAL-{uuid.uuid4().hex[:8].upper()}"
+
+        # Build context matching what generate_invoice_pdf_v2 / invoice.html expect
+        payment_info = {
+            "status": invoice_data.get("payment_status", "Completed"),
+            "payment_method": invoice_data.get("payment_method", "PayPal"),
+            "transaction_id": invoice_data.get("transaction_id", "N/A"),
+        }
+
+        booking = {
+            "booking_id":       booking_id,
+            "full_name":        invoice_data.get("full_name", ""),
+            "email":            invoice_data.get("email", ""),
+            "phone":            invoice_data.get("phone", ""),
+            "created_at":       invoice_data.get("created_at", ""),
+            "service_name":     invoice_data.get("service_name", ""),
+            "currency":         invoice_data.get("currency", "€"),
+            "amount":           invoice_data.get("amount", 0),
+            "original_amount":  invoice_data.get("original_amount") or invoice_data.get("amount", 0),
+            "is_emergency":     invoice_data.get("is_emergency", False),
+            "tax_amount":       invoice_data.get("tax_amount", 0),
+            "tax_percentage":   invoice_data.get("tax_percentage", 0),
+            "tax_name":         invoice_data.get("tax_name", "Tax"),
+            "discount_amount":  invoice_data.get("discount_amount", 0),
+            "promo_code":       invoice_data.get("promo_code", ""),
+        }
+
+        # Generate the PDF to a temp file
+        tmp_dir = tempfile.mkdtemp()
+        output_path = generate_invoice_pdf_v2(booking, payment_info=payment_info, output_dir=tmp_dir)
+
+        filename = f"invoice_{booking_id}.pdf"
+        return FileResponse(
+            output_path,
+            filename=filename,
+            media_type="application/pdf",
+            background=None,
+        )
+    except Exception as e:
+        logger.error(f"Manual invoice generation error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/download-pdf")

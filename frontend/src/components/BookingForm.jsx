@@ -58,8 +58,8 @@ export const BookingForm = ({ service, onSubmit }) => {
     let amount = service.amount;
     let original = null;
 
-    const isTikTok = key === 'tiktok-live';
-    if (globalCampaign && globalCampaign.is_active && !isTikTok) {
+    const isPredictionsOnly = key === 'tiktok-live';
+    if (globalCampaign && globalCampaign.is_active && !isPredictionsOnly) {
       const expiry = new Date(globalCampaign.expiry_date);
       if (expiry > new Date()) {
         original = amount;
@@ -107,9 +107,9 @@ export const BookingForm = ({ service, onSubmit }) => {
     onSubmit(submissionData);
   };
 
-  const isLive = service.title.includes('Live') && !service.title.includes('TikTok');
+  const isLive = service.title.includes('1:1 Zoom');
   const isAura = service.title.includes('Aura');
-  const isTikTokLive = service.title.includes('TikTok Live');
+  const isTikTokLive = service.title.includes('Predictions Only');
   const isDelivered = service.title.includes('Delivered');
 
   // Slot Logic
@@ -220,7 +220,7 @@ export const BookingForm = ({ service, onSubmit }) => {
         {isTikTokLive && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-primary flex items-center gap-2">
-              <User className="w-4 h-4 text-[var(--color-primary)]" /> TikTok Username *
+              <User className="w-4 h-4 text-[var(--color-primary)]" /> TikTok / Zoom Username *
             </label>
             <input
               type="text"
@@ -578,7 +578,7 @@ export const BookingForm = ({ service, onSubmit }) => {
                 required
                 className="w-full p-3 rounded-lg border border-primary/10 focus:ring-2 focus:ring-primary/20 outline-none min-h-[150px]"
                 placeholder={isLive
-                  ? "Share a short summary of your situation to give me context before our session. This allows our live reading to focus entirely on questions and answers."
+                  ? "Share a short summary of your situation to give me context before our session. This allows our 1:1 Zoom reading to focus entirely on questions and answers."
                   : "Describe your situation in your own words. This helps me understand your current energy and offer guidance that’s aligned with you."}
                 onChange={handleChange}
               ></textarea>

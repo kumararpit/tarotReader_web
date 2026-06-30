@@ -33,9 +33,9 @@ export const ServicesLight = () => {
 
   const getStartingPrice = (serviceTitle) => {
     let relevantKeys = [];
-    if (serviceTitle.includes('TikTok')) relevantKeys = ['tiktok-live'];
+    if (serviceTitle.includes('Predictions Only')) relevantKeys = ['tiktok-live'];
     else if (serviceTitle.includes('Delivered')) relevantKeys = ['delivered-3', 'delivered-5'];
-    else if (serviceTitle.includes('Live')) relevantKeys = ['live-20', 'live-40'];
+    else if (serviceTitle.includes('1:1 Zoom')) relevantKeys = ['live-20', 'live-40'];
     else if (serviceTitle.includes('Aura')) relevantKeys = ['aura'];
 
     let prices = relevantKeys
@@ -46,9 +46,9 @@ export const ServicesLight = () => {
 
     let minPrice = Math.min(...prices);
 
-    // Apply Global Campaign if active
-    const isTikTok = serviceTitle.includes('TikTok');
-    if (globalCampaign && globalCampaign.is_active && !isTikTok) {
+    // Predictions Only Session has no global campaign discount
+    const isPredictionsOnly = serviceTitle.includes('Predictions Only');
+    if (globalCampaign && globalCampaign.is_active && !isPredictionsOnly) {
       const expiry = new Date(globalCampaign.expiry_date);
       if (expiry > new Date()) {
         minPrice = minPrice * (1 - globalCampaign.discount_percentage / 100);
@@ -70,7 +70,7 @@ export const ServicesLight = () => {
     let imageSrc;
     if (service.title.includes("Delivered")) {
       imageSrc = process.env.PUBLIC_URL + '/assets/deliveredreading.jpeg';
-    } else if (service.title.includes("Live")) {
+    } else if (service.title.includes("1:1 Zoom")) {
       imageSrc = process.env.PUBLIC_URL + '/assets/livereading.jpeg';
     } else if (service.title.includes("Aura")) {
       imageSrc = process.env.PUBLIC_URL + '/assets/service-aura.png';

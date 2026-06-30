@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Trash2, Plus, Calendar as CalendarIcon, MessageSquare, LogOut, Sparkles, Globe, Menu, X, ArrowUpDown, ChevronUp, ChevronDown, TrendingUp, Users, DollarSign, Activity, PieChart as PieChartIcon, Download } from 'lucide-react';
+import { Trash2, Plus, Calendar as CalendarIcon, MessageSquare, LogOut, Sparkles, Globe, Menu, X, ArrowUpDown, ChevronUp, ChevronDown, TrendingUp, Users, DollarSign, Activity, PieChart as PieChartIcon, Download, FileText } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
     BarChart, Bar, PieChart, Pie, Cell, Legend
@@ -64,6 +64,140 @@ const Admin = () => {
     const [incompletePage, setIncompletePage] = useState(1);
     const [totalIncompleteBookings, setTotalIncompleteBookings] = useState(0);
     const incompletePageSize = 5;
+
+    // Manual Invoice Generator State
+    // Services for the invoice dropdown come exclusively from /api/services (DB).
+    // A hard-coded 'custom' option is always appended at the end of the list.
+
+    const generateInvoiceId = () => {
+        const now = new Date();
+        const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const rand = Math.random().toString(36).substring(2, 10).toUpperCase();
+        return `TRT-${date}-${rand}`;
+    };
+
+    const [invoiceServices, setInvoiceServices] = useState([]);  // populated from /api/services
+    const [invoiceServicesLoading, setInvoiceServicesLoading] = useState(false);
+    const [invoiceForm, setInvoiceForm] = useState({
+        full_name: '', email: '', phone: '', created_at: new Date().toISOString().split('T')[0],
+        booking_id: generateInvoiceId(),
+        service_key: '',             // initialised once API data loads
+        service_name: '',
+        currency: '€',
+        custom_amount: '',            // only used when service_key === 'custom'
+        is_emergency: false,
+        payment_status: 'Completed', payment_method: 'PayPal', transaction_id: '',
+        promo_code: '',
+        tax_name: 'Tax',
+    });
+    const [invoicePromo, setInvoicePromo]   = useState(null);
+    const [invoicePromoInput, setInvoicePromoInput] = useState('');
+    const [invoicePromoLoading, setInvoicePromoLoading] = useState(false);
+    const [invoiceActiveTax, setInvoiceActiveTax]   = useState(null);
+    const [isInvoiceGenerating, setIsInvoiceGenerating] = useState(false);
+
+    // fetch live services + active tax when invoice tab becomes active
+    useEffect(() => {
+        if (activeTab !== 'invoice') return;
+        const load = async () => {
+            setInvoiceServicesLoading(true);
+            try {
+                const [sRes, tRes] = await Promise.all([
+                    axios.get(`${API}/services`),
+                    axios.get(`${API}/taxes/active`),
+                ]);
+                const svcs = sRes.data ?? [];
+                setInvoiceServices(svcs);
+                setInvoiceActiveTax(tRes.data || null);
+                // Initialise form to first DB service (if not already set)
+                setInvoiceForm(f => {
+                    const alreadySet = f.service_key && f.service_key !== '';
+                    const first = svcs[0];
+                    return {
+                        ...f,
+                        tax_name: tRes.data?.name || 'Tax',
+                        ...((!alreadySet && first) ? {
+                            service_key:  first.key,
+                            service_name: first.name,
+                            currency:     first.currency === 'EUR' ? '€' : first.currency,
+                        } : {}),
+                    };
+                });
+            } catch (_) {}
+            finally { setInvoiceServicesLoading(false); }
+        };
+        load();
+    }, [activeTab]);
+
+
+    // ── Derived pricing ──
+    // All service data comes from invoiceServices (DB). CUSTOM_SVC is the only exception.
+    const invCalc = (() => {
+        let base = 0;
+        let currency = '€';
+        if (invoiceForm.service_key === 'custom') {
+            base = parseFloat(invoiceForm.custom_amount) || 0;
+            currency = '€';
+        } else {
+            const svc = invoiceServices.find(s => s.key === invoiceForm.service_key);
+            base = svc?.amount ?? 0;
+            // Backend stores 'EUR', map to symbol
+            const raw = svc?.currency ?? 'EUR';
+            currency = raw === 'EUR' ? '€' : raw === 'USD' ? '$' : raw === 'GBP' ? '£' : raw;
+        }
+        const orig = base;
+
+        // promo discount
+        let promoDiscount = 0;
+        if (invoicePromo && invoiceForm.service_key !== 'tiktok-live') {
+            if (invoicePromo.discount_type === 'percentage') {
+                promoDiscount = base * (invoicePromo.discount_value / 100);
+            } else {
+                promoDiscount = invoicePromo.discount_value;
+            }
+            base = Math.max(0, base - promoDiscount);
+        }
+
+        // emergency surcharge (+30%) applied on discounted price
+        let emergencyFee = 0;
+        if (invoiceForm.is_emergency) {
+            emergencyFee = base * 0.30;
+            base += emergencyFee;
+        }
+
+        // tax
+        let taxAmount = 0;
+        let taxPct = invoiceActiveTax?.percentage ?? 0;
+        let taxName = invoiceActiveTax?.name ?? invoiceForm.tax_name ?? 'Tax';
+        if (invoiceActiveTax) {
+            taxAmount = (base * taxPct) / 100;
+            base += taxAmount;
+        }
+
+        const final = Math.max(0, parseFloat(base.toFixed(2)));
+        return { orig, promoDiscount, emergencyFee, taxAmount, taxPct, taxName, final, currency };
+    })();
+
+    // helper: apply promo via API
+    const handleInvoiceApplyPromo = async () => {
+        if (!invoicePromoInput.trim()) return;
+        setInvoicePromoLoading(true);
+        try {
+            const res = await axios.post(`${API}/bookings/verify-code`, {
+                code: invoicePromoInput.trim(),
+                service_type: invoiceForm.service_key,
+            });
+            if (res.data.valid) {
+                setInvoicePromo(res.data);
+                toast.success(`Promo “${res.data.code}” applied – ${res.data.discount_type === 'percentage' ? res.data.discount_value + '%' : '€' + res.data.discount_value} off`);
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.detail || 'Invalid promo code');
+            setInvoicePromo(null);
+        } finally {
+            setInvoicePromoLoading(false);
+        }
+    };
 
     // Auth Flow State
     const [needsSetup, setNeedsSetup] = useState(null);
@@ -760,7 +894,8 @@ const Admin = () => {
                                 { id: 'slots', label: 'Manage Slots' },
                                 { id: 'bookings', label: 'Bookings' },
                                 { id: 'testimonials', label: 'Testimonials' },
-                                { id: 'promotions', label: 'Promotions' }
+                                { id: 'promotions', label: 'Promotions' },
+                                { id: 'invoice', label: 'Generate Invoice' }
                             ].map((tab) => (
                                 <button
                                     key={tab.id}
@@ -810,7 +945,8 @@ const Admin = () => {
                                                     { id: 'slots', label: 'Manage Slots', icon: CalendarIcon },
                                                     { id: 'bookings', label: 'Bookings', icon: CalendarIcon },
                                                     { id: 'testimonials', label: 'Testimonials', icon: MessageSquare },
-                                                    { id: 'promotions', label: 'Promotions', icon: Sparkles }
+                                                    { id: 'promotions', label: 'Promotions', icon: Sparkles },
+                                                    { id: 'invoice', label: 'Generate Invoice', icon: FileText }
                                                 ].map((tab) => (
                                                     <button
                                                         key={tab.id}
@@ -1556,7 +1692,7 @@ const Admin = () => {
                                             className="p-2 rounded-md border border-primary/10 text-sm bg-background/50 focus:border-secondary outline-none"
                                         >
                                             <option value="all">All Services</option>
-                                            <option value="live">Live Readings</option>
+                                            <option value="live">1:1 Zoom Readings</option>
                                             <option value="delivered">Delivered Readings</option>
                                             <option value="aura">Aura Reading</option>
                                         </select>
@@ -1716,6 +1852,375 @@ const Admin = () => {
                     <TabsContent value="promotions">
                         <PromotionsTab />
                     </TabsContent>
+
+                    {/* ── Manual Invoice Generator Tab ── */}
+                    <TabsContent value="invoice" className="space-y-6 outline-none animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* Header */}
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-primary/10 rounded-xl">
+                                <FileText className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-heading font-bold text-primary">Generate Invoice PDF</h2>
+                                <p className="text-xs text-primary/50">Prices auto-fill from the service catalogue. Discounts, tax and the priority fee are calculated live.</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            {/* ── LEFT COLUMN: form fields ── */}
+                            <div className="xl:col-span-2 space-y-6">
+
+                                {/* ── Client Profile ── */}
+                                <Card className="shadow-sm border-none">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary/50">👤 Client Profile</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-full-name" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Full Name <span className="text-red-500">*</span></Label>
+                                                <Input id="inv-full-name" placeholder="Jane Smith"
+                                                    value={invoiceForm.full_name}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, full_name: e.target.value }))} />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-date" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Invoice Date</Label>
+                                                <Input id="inv-date" type="date"
+                                                    value={invoiceForm.created_at}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, created_at: e.target.value }))} />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-email" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Email <span className="text-red-500">*</span></Label>
+                                                <Input id="inv-email" type="email" placeholder="jane@example.com"
+                                                    value={invoiceForm.email}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, email: e.target.value }))} />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-phone" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Phone</Label>
+                                                <Input id="inv-phone" placeholder="+1 555 000 0000"
+                                                    value={invoiceForm.phone}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, phone: e.target.value }))} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="inv-booking-id" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Invoice / Booking ID</Label>
+                                            <div className="flex gap-2">
+                                                <Input id="inv-booking-id" placeholder="TRT-20240101-ABCD1234"
+                                                    value={invoiceForm.booking_id}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, booking_id: e.target.value }))} />
+                                                <Button type="button" variant="outline" size="sm"
+                                                    className="whitespace-nowrap border-primary/20 text-primary/60 hover:text-primary hover:border-primary/50"
+                                                    onClick={() => setInvoiceForm(f => ({ ...f, booking_id: generateInvoiceId() }))}>
+                                                    ↻ New ID
+                                                </Button>
+                                            </div>
+                                            <p className="text-[10px] text-primary/40">Format: TRT-YYYYMMDD-XXXXXXXX (same as system-generated IDs)</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* ── Service & Pricing ── */}
+                                <Card className="shadow-sm border-none">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary/50">🧾 Service & Pricing</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        {/* Service dropdown */}
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="inv-service" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Service <span className="text-red-500">*</span></Label>
+                                            {invoiceServicesLoading ? (
+                                                <div className="flex items-center gap-2 px-3 py-2.5 border border-input rounded-md text-sm text-primary/40">
+                                                    <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                                    Loading services from database…
+                                                </div>
+                                            ) : (
+                                            <select id="inv-service"
+                                                className="w-full border border-input bg-background rounded-md px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                                value={invoiceForm.service_key}
+                                                onChange={e => {
+                                                    const key = e.target.value;
+                                                    if (key === 'custom') {
+                                                        setInvoiceForm(f => ({
+                                                            ...f,
+                                                            service_key: 'custom',
+                                                            service_name: '',
+                                                            currency: '€',
+                                                            custom_amount: '',
+                                                            is_emergency: false,
+                                                        }));
+                                                    } else {
+                                                        const svc = invoiceServices.find(s => s.key === key);
+                                                        const sym = svc?.currency === 'EUR' ? '€' : svc?.currency ?? '€';
+                                                        setInvoiceForm(f => ({
+                                                            ...f,
+                                                            service_key:  key,
+                                                            service_name: svc?.name ?? key,
+                                                            currency:     sym,
+                                                            custom_amount: '',
+                                                            is_emergency: key === 'tiktok-live' ? false : f.is_emergency,
+                                                        }));
+                                                    }
+                                                    setInvoicePromo(null);
+                                                    setInvoicePromoInput('');
+                                                }}>
+                                                {/* DB services */}
+                                                {invoiceServices.map(s => {
+                                                    const sym = s.currency === 'EUR' ? '€' : s.currency;
+                                                    return (
+                                                        <option key={s.key} value={s.key}>
+                                                            {s.name} — {sym} {s.amount}
+                                                        </option>
+                                                    );
+                                                })}
+                                                {/* Custom always at the end */}
+                                                <option value="custom">Custom Service — enter price manually</option>
+                                            </select>
+                                            )}
+                                        </div>
+
+                                        {/* Custom amount (only shown for 'custom' service) */}
+                                        {invoiceForm.service_key === 'custom' && (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <Label htmlFor="inv-custom-name" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Custom Service Name</Label>
+                                                    <Input id="inv-custom-name" placeholder="e.g. Oracle Card Reading"
+                                                        value={invoiceForm.service_name}
+                                                        onChange={e => setInvoiceForm(f => ({ ...f, service_name: e.target.value }))} />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <Label htmlFor="inv-custom-amt" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Base Price (€) <span className="text-red-500">*</span></Label>
+                                                    <Input id="inv-custom-amt" type="number" min="0" step="0.01" placeholder="0.00"
+                                                        value={invoiceForm.custom_amount}
+                                                        onChange={e => setInvoiceForm(f => ({ ...f, custom_amount: e.target.value }))} />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Emergency toggle (not for Predictions Only Session) */}
+                                        {invoiceForm.service_key !== 'tiktok-live' && (
+                                            <label className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-orange-300 bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors">
+                                                <input type="checkbox" id="inv-emergency"
+                                                    className="w-4 h-4 accent-orange-500"
+                                                    checked={invoiceForm.is_emergency}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, is_emergency: e.target.checked }))} />
+                                                <div>
+                                                    <span className="text-sm font-semibold text-orange-700">Priority / Emergency Booking</span>
+                                                    <span className="block text-xs text-orange-500/80">Adds a +30% surcharge on the (discounted) base price</span>
+                                                </div>
+                                                {invoiceForm.is_emergency && (
+                                                    <span className="ml-auto text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                                                        +{invCalc.currency} {invCalc.emergencyFee.toFixed(2)}
+                                                    </span>
+                                                )}
+                                            </label>
+                                        )}
+
+                                        {/* Promo Code */}
+                                        {invoiceForm.service_key !== 'tiktok-live' && (
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-semibold uppercase tracking-wider text-primary/60">Promo / Discount Code</Label>
+                                                <div className="flex gap-2">
+                                                    <Input placeholder="e.g. SAVE10"
+                                                        value={invoicePromoInput}
+                                                        onChange={e => { setInvoicePromoInput(e.target.value); setInvoicePromo(null); }}
+                                                        className={invoicePromo ? 'border-green-400 bg-green-50' : ''}
+                                                        onKeyDown={e => e.key === 'Enter' && handleInvoiceApplyPromo()} />
+                                                    <Button type="button" variant="outline" size="sm"
+                                                        className={`whitespace-nowrap ${invoicePromo ? 'border-green-400 text-green-700 bg-green-50' : 'border-primary/20 text-primary/60 hover:border-primary/50 hover:text-primary'}`}
+                                                        disabled={invoicePromoLoading}
+                                                        onClick={handleInvoiceApplyPromo}>
+                                                        {invoicePromoLoading ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> : invoicePromo ? '✓ Applied' : 'Apply'}
+                                                    </Button>
+                                                    {invoicePromo && (
+                                                        <Button type="button" variant="ghost" size="sm" className="text-red-400 hover:text-red-600 px-2"
+                                                            onClick={() => { setInvoicePromo(null); setInvoicePromoInput(''); }}>
+                                                            ✕
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                {invoicePromo && (
+                                                    <p className="text-xs text-green-600 font-medium">
+                                                        ✔ Code “{invoicePromo.code}”: −{invCalc.currency} {invCalc.promoDiscount.toFixed(2)} discount applied
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Active tax info */}
+                                        {invoiceActiveTax && (
+                                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700">
+                                                <span className="font-bold">🏦 Active Tax:</span>
+                                                <span>{invoiceActiveTax.name} — {invoiceActiveTax.percentage}%</span>
+                                                <span className="ml-auto font-semibold">+{invCalc.currency} {invCalc.taxAmount.toFixed(2)}</span>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+
+                                {/* ── Payment Details ── */}
+                                <Card className="shadow-sm border-none">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary/50">💳 Payment Details</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-pay-status" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Status</Label>
+                                                <select id="inv-pay-status"
+                                                    className="w-full border border-input bg-background rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                                    value={invoiceForm.payment_status}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, payment_status: e.target.value }))}>
+                                                    {['Completed', 'Paid', 'Pending', 'Failed', 'Refunded'].map(s => (
+                                                        <option key={s} value={s}>{s}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-pay-method" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Payment Method</Label>
+                                                <select id="inv-pay-method"
+                                                    className="w-full border border-input bg-background rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                                    value={invoiceForm.payment_method}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, payment_method: e.target.value }))}>
+                                                    {['PayPal', 'Credit Card', 'Bank Transfer', 'Stripe', 'Cash', 'Other'].map(m => (
+                                                        <option key={m} value={m}>{m}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="inv-txn" className="text-xs font-semibold uppercase tracking-wider text-primary/60">Transaction ID</Label>
+                                                <Input id="inv-txn" placeholder="TXN–ABC123"
+                                                    value={invoiceForm.transaction_id}
+                                                    onChange={e => setInvoiceForm(f => ({ ...f, transaction_id: e.target.value }))} />
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+
+                            {/* ── RIGHT COLUMN: live pricing breakdown + generate ── */}
+                            <div className="space-y-4">
+                                <Card className="shadow-sm border-none sticky top-28">
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary/50">📊 Pricing Breakdown</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                        {/* Service badge */}
+                                        <div className="rounded-xl bg-primary/5 border border-primary/10 p-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-primary/40 mb-1">Service</p>
+                                            <p className="text-sm font-semibold text-primary leading-snug">
+                                                {invoiceForm.service_key === 'custom'
+                                                    ? (invoiceForm.service_name || 'Custom Service')
+                                                    : (invoiceServices.find(s => s.key === invoiceForm.service_key)?.name || invoiceForm.service_name || '—')}
+                                            </p>
+                                        </div>
+
+                                        {/* Line items */}
+                                        <div className="space-y-1.5 text-sm">
+                                            <div className="flex justify-between text-primary/70">
+                                                <span>Base Price</span>
+                                                <span className="font-mono font-medium">{invCalc.currency} {invCalc.orig.toFixed(2)}</span>
+                                            </div>
+                                            {invCalc.promoDiscount > 0 && (
+                                                <div className="flex justify-between text-green-600">
+                                                    <span>Promo Discount</span>
+                                                    <span className="font-mono font-medium">− {invCalc.currency} {invCalc.promoDiscount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {invCalc.emergencyFee > 0 && (
+                                                <div className="flex justify-between text-orange-600">
+                                                    <span>Priority Fee (+30%)</span>
+                                                    <span className="font-mono font-medium">+ {invCalc.currency} {invCalc.emergencyFee.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {invCalc.taxAmount > 0 && (
+                                                <div className="flex justify-between text-blue-600">
+                                                    <span>{invCalc.taxName} ({invCalc.taxPct}%)</span>
+                                                    <span className="font-mono font-medium">+ {invCalc.currency} {invCalc.taxAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Total */}
+                                        <div className="border-t border-primary/10 pt-3 flex justify-between items-center">
+                                            <span className="text-sm font-bold text-primary">Total Paid</span>
+                                            <span className="text-2xl font-heading font-bold text-primary tabular-nums">
+                                                {invCalc.currency} {invCalc.final.toFixed(2)}
+                                            </span>
+                                        </div>
+
+                                        {/* Invoice ID preview */}
+                                        <div className="rounded-lg bg-primary/5 p-2.5 text-center">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-primary/40 mb-0.5">Invoice Reference</p>
+                                            <p className="text-xs font-mono font-bold text-primary/70 break-all">{invoiceForm.booking_id || '—'}</p>
+                                        </div>
+
+                                        {/* Generate button */}
+                                        <Button id="btn-generate-invoice"
+                                            disabled={isInvoiceGenerating || !invoiceForm.full_name || !invoiceForm.email || !invCalc.final || (!invoiceForm.service_name && invoiceForm.service_key !== 'custom')}
+                                            onClick={async () => {
+                                                setIsInvoiceGenerating(true);
+                                                try {
+                                                    const payload = {
+                                                        full_name:        invoiceForm.full_name,
+                                                        email:            invoiceForm.email,
+                                                        phone:            invoiceForm.phone,
+                                                        created_at:       invoiceForm.created_at,
+                                                        booking_id:       invoiceForm.booking_id,
+                                                        service_name:     invoiceForm.service_key === 'custom'
+                                                                            ? invoiceForm.service_name
+                                                                            : (invoiceServices.find(s => s.key === invoiceForm.service_key)?.name ?? invoiceForm.service_name),
+                                                        currency:         invCalc.currency,
+                                                        amount:           invCalc.final,
+                                                        original_amount:  invCalc.orig,
+                                                        is_emergency:     invoiceForm.is_emergency,
+                                                        payment_status:   invoiceForm.payment_status,
+                                                        payment_method:   invoiceForm.payment_method,
+                                                        transaction_id:   invoiceForm.transaction_id,
+                                                        tax_amount:       invCalc.taxAmount,
+                                                        tax_percentage:   invCalc.taxPct,
+                                                        tax_name:         invCalc.taxName,
+                                                        discount_amount:  invCalc.promoDiscount,
+                                                        promo_code:       invoicePromo?.code || '',
+                                                    };
+                                                    const response = await axios.post(`${API}/generate-invoice-manual`, payload, { responseType: 'blob' });
+                                                    const url  = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+                                                    const link = document.createElement('a');
+                                                    link.href = url;
+                                                    link.setAttribute('download', `invoice_${invoiceForm.booking_id || 'manual'}.pdf`);
+                                                    document.body.appendChild(link);
+                                                    link.click();
+                                                    link.remove();
+                                                    window.URL.revokeObjectURL(url);
+                                                    toast.success('Invoice PDF downloaded!');
+                                                } catch (err) {
+                                                    toast.error(err.response?.data?.detail || err.message || 'Failed to generate invoice');
+                                                } finally {
+                                                    setIsInvoiceGenerating(false);
+                                                }
+                                            }}
+                                            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-6 rounded-xl shadow-md text-sm">
+                                            {isInvoiceGenerating ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                                    Generating…
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <FileText className="w-4 h-4" />
+                                                    Generate &amp; Download PDF
+                                                </span>
+                                            )}
+                                        </Button>
+
+                                        <p className="text-[10px] text-center text-primary/30">Same layout &amp; branding as automated system invoices</p>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
+                    </TabsContent>
+
                 </Tabs>
 
                 <AlertDialog open={!!overlapData} onOpenChange={(open) => !open && setOverlapData(null)}>
@@ -1802,7 +2307,7 @@ const Admin = () => {
                                         return (
                                             <div className="space-y-4">
                                                 <div>
-                                                    <h4 className="font-semibold text-gray-700 mb-1 text-sm uppercase tracking-wide">TikTok Username</h4>
+                                                    <h4 className="font-semibold text-gray-700 mb-1 text-sm uppercase tracking-wide">TikTok / Zoom Username</h4>
                                                     <p className="bg-gray-50 p-3 rounded-md text-sm text-gray-700 font-mono">
                                                         {selectedBooking.tiktok_username || 'Not provided'}
                                                     </p>
@@ -1821,7 +2326,7 @@ const Admin = () => {
                                         return null; // Aura has no Situation/Questions — just the photo below
                                     }
 
-                                    // Delivered / Live Readings
+                                    // Delivered / 1:1 Zoom Readings
                                     const isLive = sType.startsWith('live');
                                     return (
                                         <div className="space-y-4">
@@ -1880,14 +2385,14 @@ const Admin = () => {
                                                 <h4 className="font-semibold text-gray-700 mb-1 text-sm uppercase tracking-wide">Situation/Context</h4>
                                                 <p className="bg-gray-50 p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap">
                                                     {selectedBooking.situation_description &&
-                                                     selectedBooking.situation_description !== 'TikTok Live Session' &&
+                                                     selectedBooking.situation_description !== 'Predictions Only Session' &&
                                                      selectedBooking.situation_description !== 'Aura Reading'
                                                         ? selectedBooking.situation_description
                                                         : 'No description provided.'}
                                                 </p>
                                             </div>
                                             {selectedBooking.questions &&
-                                             selectedBooking.questions !== 'TikTok Live Session' &&
+                                             selectedBooking.questions !== 'Predictions Only Session' &&
                                              selectedBooking.questions !== 'Aura Reading' && (
                                                 <div>
                                                     <h4 className="font-semibold text-gray-700 mb-1 text-sm uppercase tracking-wide">Specific Questions</h4>
@@ -1962,7 +2467,7 @@ const Admin = () => {
                                     )}
                                     {selectedBooking.tiktok_username && (
                                         <div className="col-span-2">
-                                            <span className="block font-medium">TikTok:</span> {selectedBooking.tiktok_username}
+                                            <span className="block font-medium">TikTok / Zoom Username:</span> {selectedBooking.tiktok_username}
                                         </div>
                                     )}
                                 </div>

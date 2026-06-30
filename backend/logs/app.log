@@ -1151,3 +1151,8 @@ BrokenPipeError: [Errno 32] Broken pipe
 2026-03-14 14:45:26,889 | INFO     | [-] | app | <module>:189 | Allowed CORS Origins: ['http://localhost:3000', 'https://tejashvinibdivinedecode.com']
 2026-03-14 14:45:27,019 | INFO     | [-] | app | lifespan:133 | Application starting up...
 2026-03-14 14:45:27,274 | INFO     | [-] | app | lifespan:135 | Ensured unique index on slots (date, time)
+2026-06-30 16:06:33,221 | ERROR    | [-] | app | <module>:79 | CRITICAL: MONGO_URL environment variable is not set!
+2026-06-30 16:20:31,469 | ERROR    | [-] | app | <module>:79 | CRITICAL: MONGO_URL environment variable is not set!
+2026-06-30 16:28:02,163 | ERROR    | [-] | app | <module>:79 | CRITICAL: MONGO_URL environment variable is not set!
+2026-06-30 16:40:24,056 | ERROR    | [-] | app | <module>:79 | CRITICAL: MONGO_URL environment variable is not set!
+2026-06-30 16:40:58,262 | ERROR    | [-] | app | <module>:79 | CRITICAL: MONGO_URL environment variable is not set!

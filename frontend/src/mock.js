@@ -18,16 +18,16 @@ export const siteInfo = {
 export const services = [
   {
     id: 4,
-    title: "TikTok Live",
+    title: "Predictions Only Session",
     type: "Live Interaction",
-    description: "Join a live session on TikTok for real-time guidance and interactive reading experience.",
+    description: "10-minute Zoom Reading, or TikTok Live Mini Reading.",
     icon: "Video",
     features: [
-      "Real-time reading on TikTok Live",
+      "10-min Zoom reading or TikTok Live mini reading",
       "Interactive Q&A Session",
-      "Connect with the community",
-      "Personalized insights",
-      "Flexible timing"
+      "Real-time personalized insights",
+      "Flexible timing",
+      "Great for a quick focused question"
     ]
   },
   {
@@ -46,7 +46,7 @@ export const services = [
   },
   {
     id: 2,
-    title: "Live Readings",
+    title: "1:1 Zoom Readings",
     type: "Interactive Session",
     description: "Real-time tarot reading sessions via Zoom audio call, offering interactive and personalized guidance for your questions and concerns.",
     icon: "Phone",
@@ -106,11 +106,11 @@ export const pricingPackages = [
   },
   {
     id: 4,
-    type: "TikTok Live",
+    type: "Predictions Only Session",
     bgColor: "#FF8A65",
     textColor: "#000000",
     packages: [
-      { service: "TikTok Live Reading", popular: true }
+      { service: "Predictions Only Session", popular: true }
     ]
   }
 ];
