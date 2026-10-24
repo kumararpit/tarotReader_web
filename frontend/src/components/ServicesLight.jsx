@@ -149,9 +149,11 @@ export const ServicesLight = () => {
         <div className="max-w-7xl mx-auto px-4">
           {/* Mobile & Tablet / iPad View (<= 1024px) */}
           <div className="grid grid-cols-1 gap-8 lg:hidden">
-            {services.map((service, index) => (
-              <ServiceCard key={service.id} service={service} index={index} />
-            ))}
+            {services
+                   .filter(service => !service.title.includes("Aura"))
+                   .map((service, index) => (
+                 <ServiceCard key={service.id} service={service} index={index} />
+                ))}
           </div>
 
           {/* Desktop View (> 1024px) */}
@@ -164,11 +166,13 @@ export const ServicesLight = () => {
               className="w-full"
             >
               <CarouselContent className="flex -ml-4">
-                {services.map((service, index) => (
-                  <CarouselItem key={service.id} className="pl-4 basis-1/2 xl:basis-1/3">
-                    <ServiceCard service={service} index={index} />
-                  </CarouselItem>
-                ))}
+                {services
+                   .filter(service => !service.title.includes("Aura"))
+                   .map((service, index) => (
+                    <CarouselItem key={service.id} className="pl-4 basis-1/2 xl:basis-1/3">
+                   <ServiceCard service={service} index={index} />
+                    </CarouselItem>
+                  ))}
               </CarouselContent>
               <CarouselPrevious className="-left-4 lg:-left-12 h-10 w-10" />
               <CarouselNext className="-right-4 lg:-right-12 h-10 w-10" />
